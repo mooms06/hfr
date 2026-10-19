@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         [HFR] Upload Imgur Light
 // @namespace    forum.hardware.fr
-// @version      0.2.3
+// @version      0.2.4
 // @description  Colle ou sélectionne une image, l'envoie à Imgur et choisit sa taille BBCode.
 // @icon         https://www.hardware.fr/images_skin_2010/facebook/logo.png
 // @match        https://forum.hardware.fr/*

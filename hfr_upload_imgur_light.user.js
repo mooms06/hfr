@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         [HFR] Upload Imgur Light
 // @namespace    forum.hardware.fr
-// @version      0.2.5
+// @version      0.2.6
 // @description  Colle ou sélectionne une image, l'envoie à Imgur et choisit sa taille BBCode.
 // @icon         https://www.hardware.fr/images_skin_2010/facebook/logo.png
 // @match        https://forum.hardware.fr/*
@@ -26,6 +26,7 @@
     const ENDPOINT = 'https://api.imgur.com/3/image';
     const MAX_BYTES = 20 * 1024 * 1024;
     const HISTORY_KEY = 'hfr-imgur-light-deletions';
+    const DEFAULT_SIZE_KEY = 'hfr-imgur-light-default-size';
     const registered = new WeakSet();
     const busy = new WeakSet();
     const sizes = [
@@ -33,6 +34,54 @@
         ['Petite miniature', 't'], ['Moyenne miniature', 'm'],
         ['Grande miniature', 'l'], ['Énorme miniature', 'h']
     ];
+
+    function defaultSize() {
+        const value = GM_getValue(DEFAULT_SIZE_KEY, null);
+        return sizes.some(([, suffix]) => suffix === value) ? value : null;
+    }
+
+    function showDefaultSizeMenu() {
+        const dialog = document.createElement('dialog');
+        dialog.style.cssText = 'max-width:92vw;border:1px solid #888;border-radius:8px;padding:16px;font:14px sans-serif;';
+        const heading = document.createElement('h3');
+        heading.textContent = 'Taille de miniature par défaut';
+        const label = document.createElement('label');
+        label.textContent = 'Après chaque envoi : ';
+        const select = document.createElement('select');
+        const current = defaultSize();
+        for (const [text, value] of [['Demander à chaque fois', 'ask'], ...sizes]) {
+            const option = document.createElement('option');
+            option.textContent = text;
+            option.value = value;
+            select.append(option);
+        }
+        select.value = current === null ? 'ask' : current;
+        label.append(select);
+        const hint = document.createElement('p');
+        hint.textContent = 'Une taille fixe insère directement le BBCode avec un lien vers l’original. Les GIF restent en taille originale.';
+        const save = document.createElement('button');
+        save.type = 'button';
+        save.textContent = 'Enregistrer';
+        save.addEventListener('click', () => {
+            GM_setValue(DEFAULT_SIZE_KEY, select.value === 'ask' ? null : select.value);
+            dialog.close();
+        });
+        const cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.textContent = 'Annuler';
+        cancel.style.marginLeft = '8px';
+        cancel.addEventListener('click', () => dialog.close());
+        dialog.append(heading, label, hint, save, cancel);
+        dialog.addEventListener('close', () => dialog.remove(), { once: true });
+        document.body.append(dialog);
+        dialog.showModal();
+    }
+
+    function imageCode(image, suffix, linked) {
+        const url = suffix ? image.link.replace(/(\.[^.?#]+)$/, suffix + '$1') : image.link;
+        const code = '[img]' + url + '[/img]';
+        return linked ? '[url=' + image.link + ']' + code + '[/url]' : code;
+    }
 
     function safeUrl(value) {
         if (typeof value !== 'string') throw new Error('URL Imgur absente');
@@ -145,6 +194,7 @@
     }
 
     GM_registerMenuCommand('Upload Imgur Light : liste et effacement des images', showDeletionMenu);
+    GM_registerMenuCommand('Upload Imgur Light : taille de miniature par défaut', showDefaultSizeMenu);
 
     function insert(textarea, text, selection) {
         // Le texte n'a pas changé : insertion à la position mémorisée.
@@ -180,10 +230,8 @@
             button.type = 'button';
             button.textContent = label;
             button.title = 'Clic : avec lien ; clic droit : sans lien';
-            const url = suffix ? image.link.replace(/(\.[^.?#]+)$/, `${suffix}$1`) : image.link;
             const apply = linked => {
-                const code = `[img]${url}[/img]`;
-                insert(textarea, linked ? `[url=${image.link}]${code}[/url]` : code, selection);
+                insert(textarea, imageCode(image, suffix, linked), selection);
                 dialog.close();
             };
             button.addEventListener('click', () => apply(true));
@@ -235,8 +283,14 @@
             if (!/^[a-zA-Z0-9]+$/.test(image.id || ''))
                 throw new Error('Identifiant Imgur invalide');
             remember(image);
-            chooseSize(image, textarea, selection);
-            status.textContent = 'Image envoyée ✓ — choisis sa taille';
+            const suffix = defaultSize();
+            if (suffix === null) {
+                chooseSize(image, textarea, selection);
+                status.textContent = 'Image envoyée ✓ — choisis sa taille';
+            } else {
+                insert(textarea, imageCode(image, image.type === 'image/gif' ? '' : suffix, true), selection);
+                status.textContent = 'Image envoyée et insérée ✓';
+            }
         } catch (error) {
             console.error('[HFR Upload Imgur Light]', error);
             status.textContent = `Échec : ${error.message || 'erreur inconnue'}`;
